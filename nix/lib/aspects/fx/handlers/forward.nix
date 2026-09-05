@@ -65,17 +65,43 @@ let
       ];
       ${intoClass} = {
         __functionArgs = guardArgs // intoPathArgs // adaptArgv;
-        __functor = _: args: {
-          options.den.fwd.${adapterKey} = lib.mkOption {
-            defaultText = lib.literalExpression "{ }";
-            default = { };
-            type = lib.types.submoduleWith {
-              specialArgs = adaptArgsFn args;
-              modules = adapterMods;
+        __functor =
+          _: args:
+          let
+            stripModuleMetadata =
+              value:
+              if builtins.isAttrs value then
+                builtins.removeAttrs value [
+                  "_module"
+                  "warnings"
+                  "assertions"
+                ]
+              else
+                value;
+            stripAtPath =
+              path: value:
+              if path == [ ] then
+                stripModuleMetadata value
+              else if builtins.isAttrs value && value ? ${builtins.head path} then
+                value
+                // {
+                  ${builtins.head path} = stripAtPath (builtins.tail path) value.${builtins.head path};
+                }
+              else
+                value;
+            forwarded = stripAtPath (intoPathFn args) (stripModuleMetadata args.config.den.fwd.${adapterKey});
+          in
+          {
+            options.den.fwd.${adapterKey} = lib.mkOption {
+              defaultText = lib.literalExpression "{ }";
+              default = { };
+              type = lib.types.submoduleWith {
+                specialArgs = adaptArgsFn args;
+                modules = adapterMods;
+              };
             };
+            config = guardFn args (lib.setAttrByPath (intoPathFn args) forwarded);
           };
-          config = guardFn args (lib.setAttrByPath (intoPathFn args) args.config.den.fwd.${adapterKey});
-        };
       };
     };
 
