@@ -161,21 +161,18 @@ in
         allScopeIds = spawnAllScopeIds;
       }) (_: true);
 
-      # A route that materializes an adapter DECLARES `options.den.fwd.<key>` in
-      # the target bucket (handlers/forward.nix mkAdapterAspect, edges/route.nix
-      # mkAdapterFunctor). Content definitions merge; an option DECLARATION does
-      # not — a second one in the same evalModules is a hard "already declared"
-      # error. Of buildForwardAspect's three arms only mkAdapterAspect declares:
-      # the top-level adapter arm evaluates inline and mkDirectAspect places
-      # content, so both stay.
+      # Parent and spawn folds can both materialize the same adapter route into
+      # one target evaluation. Nested complex adapters are parent-owned so their
+      # evaluated payload is emitted once; duplicate scalar definitions can hide
+      # this bug, while list definitions expose it by concatenating twice.
       #
       # Testing __complexForward FIRST is load-bearing, not stylistic: every
       # complex forward carries an adapterKey (lib/forward.nix always builds
-      # one), so a bare `adapterKey != null` would also exclude non-declaring
+      # one), so a bare `adapterKey != null` would also exclude non-adapter
       # forwards — among them the home-manager battery's own delivery route.
-      # The simple-route arm is defensive: adapterKey has one in-tree producer
-      # (lib/forward.nix), which only builds complex-forward specs.
-      declaresForwardOption =
+      # Simple adapter routes remain parent-owned because they can still declare
+      # `options.den.fwd.<key>` through edges/route.nix::mkAdapterFunctor.
+      parentOwnsAdapterRoute =
         r:
         if r.__complexForward or false then
           (r.needsAdapter or false) && !(r.needsTopLevelAdapter or false)
@@ -193,21 +190,19 @@ in
       # at the target). Order/precedence preserved exactly: freshParent (parent
       # routes whose key ∉ spawn keys) ++ spawnHere.
       #
-      # Declaration-bearing routes get the OPPOSITE precedence: the parent owns
+      # Parent-owned adapter routes get the OPPOSITE precedence: the parent owns
       # them, and the spawn's copy goes. The parent materializes the same route
       # at the same scope and both folds land in one target (the user's
-      # home-manager evaluation), so whichever side re-applies it emits a second
-      # `den.fwd.<key>` declaration — and unlike content definitions, two
-      # declarations do not merge. So a declaring route is dropped from
+      # home-manager evaluation). So a parent-owned route is dropped from
       # `freshParent` always, and additionally from `spawnHere` whenever the
-      # parent registered the same identity at that scope. A declaration the
-      # spawn alone registers stays: there is no other producer for it.
+      # parent registered the same identity at that scope. A route the spawn
+      # alone registers stays: there is no other producer for it.
       #
       # Applying this by identity rather than by target class is deliberate. A
-      # declaration can reach the extracted class INDIRECTLY — an `inner -> mid`
-      # forward declares into the `mid` bucket, which a `mid -> homeManager` hop
-      # then nests into the target — so gating on `intoClass == class` would miss
-      # the chained shape.
+      # route can reach the extracted class INDIRECTLY — an `inner -> mid`
+      # forward emits into the `mid` bucket, which a `mid -> homeManager` hop then
+      # nests into the target — so gating on `intoClass == class` would miss the
+      # chained shape.
       #
       # The parent's copy is always present to take over — an excluded route is
       # by construction inside the spawned subtree, and `suppressionVerdicts`'
@@ -229,14 +224,14 @@ in
           let
             spawnHere = spawnRoutes.${sid} or [ ];
             spawnKeys = lib.genAttrs (map (routeKey sid) spawnHere) (_: true);
-            parentDeclaredKeys = lib.genAttrs (map (routeKey sid) (
-              builtins.filter declaresForwardOption parentRoutes
+            parentOwnedKeys = lib.genAttrs (map (routeKey sid) (
+              builtins.filter parentOwnsAdapterRoute parentRoutes
             )) (_: true);
             freshParent = builtins.filter (
-              r: !(spawnKeys ? ${routeKey sid r}) && !(declaresForwardOption r)
+              r: !(spawnKeys ? ${routeKey sid r}) && !(parentOwnsAdapterRoute r)
             ) parentRoutes;
             keptSpawnHere = builtins.filter (
-              r: !(declaresForwardOption r && parentDeclaredKeys ? ${routeKey sid r})
+              r: !(parentOwnsAdapterRoute r && parentOwnedKeys ? ${routeKey sid r})
             ) spawnHere;
           in
           freshParent ++ keptSpawnHere

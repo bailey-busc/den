@@ -1,12 +1,16 @@
-# Issue #645: two custom forward classes chained (`inner` -> `mid` ->
-# `homeManager`) collide on the INNER hop's `den.fwd."inner/mid/<path>"`
+# Issue #645: two chained custom classes (`inner` -> `mid` -> `homeManager`)
+# originally collided on the inner hop's `den.fwd."inner/mid/<path>"`
 # declaration.
 #
-# The inner adapter declares into the `mid` bucket, which the second hop then
-# nests into `homeManager` — so the declaration reaches the target indirectly
-# and a second producer survives the suppression that covers direct hops.
+# The inner adapter still reaches the target indirectly through the `mid`
+# bucket. The list assertions detect a second route owner without relying on an
+# option declaration conflict.
 { denTest, ... }:
 let
+  shellOptionMarker = "den-forward-once";
+  markerCount =
+    options: builtins.length (builtins.filter (option: option == shellOptionMarker) options);
+
   # `inner` content lands at `programs.bash` of the `mid` class; `mid` merges
   # into `homeManager` wholesale.
   innerClass =
@@ -52,19 +56,28 @@ in
           (midClass den lib)
         ];
 
-        den.aspects.chained.inner.enable = true;
+        den.aspects.chained.inner = {
+          enable = true;
+          shellOptions = [ shellOptionMarker ];
+        };
 
         den.hosts.x86_64-linux.igloo.users.tux = { };
 
         den.aspects.tux.includes = [ den.aspects.chained ];
 
-        expr = tuxHm.programs.bash.enable or "<stranded>";
-        expected = true;
+        expr = {
+          enable = tuxHm.programs.bash.enable or "<stranded>";
+          markerCount = markerCount tuxHm.programs.bash.shellOptions;
+        };
+        expected = {
+          enable = true;
+          markerCount = 1;
+        };
       }
     );
 
-    # Chained content defined on the HOST aspect: dropping the spawn's copy of
-    # the inner declaration must not strand what the projection carries.
+    # Chained content defined on the host aspect: dropping the spawn's copy of
+    # the inner adapter route must not strand what the projection carries.
     test-chained-forward-host-defined = denTest (
       {
         den,
@@ -79,19 +92,28 @@ in
           (midClass den lib)
         ];
 
-        den.aspects.chained.inner.enable = true;
+        den.aspects.chained.inner = {
+          enable = true;
+          shellOptions = [ shellOptionMarker ];
+        };
 
         den.hosts.x86_64-linux.igloo.users.tux = { };
 
         den.aspects.igloo.includes = [ den.aspects.chained ];
 
-        expr = tuxHm.programs.bash.enable or "<stranded>";
-        expected = true;
+        expr = {
+          enable = tuxHm.programs.bash.enable or "<stranded>";
+          markerCount = markerCount tuxHm.programs.bash.shellOptions;
+        };
+        expected = {
+          enable = true;
+          markerCount = 1;
+        };
       }
     );
 
     # The same chain without the battery — no spawn, so this isolates the
-    # chained-declaration collision from anything host-aspects contributes.
+    # chained-route collision from anything host-aspects contributes.
     test-chained-forward-without-host-aspects = denTest (
       {
         den,

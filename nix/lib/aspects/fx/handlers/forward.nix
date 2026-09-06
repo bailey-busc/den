@@ -40,35 +40,22 @@ let
   mkAdapterAspect =
     {
       intoClass,
-      adapterKey,
       guardFn,
       guardArgs,
       intoPathArgs,
       intoPathFn,
-      adaptArgsFn,
+      sourceSpecialArgsFn,
       adaptArgv,
       adapterMods,
-      freeformMod,
     }:
     sourceModule: {
       meta.contextDependent = true;
-      includes = [
-        (mkDirectAspect {
-          inherit intoClass freeformMod;
-          staticIntoPath = [
-            "den"
-            "fwd"
-            adapterKey
-          ];
-          evalConfig = false;
-        } sourceModule)
-      ];
       ${intoClass} = {
         __functionArgs = guardArgs // intoPathArgs // adaptArgv;
         __functor =
           _: args:
           let
-            stripModuleMetadata =
+            stripEvaluatorMetadata =
               value:
               if builtins.isAttrs value then
                 builtins.removeAttrs value [
@@ -78,10 +65,34 @@ let
                 ]
               else
                 value;
+            stripAspectMetadata =
+              value:
+              if builtins.isAttrs value then
+                let
+                  # Static custom-class fragments can carry nested aspect
+                  # wrappers. Remove their routing metadata without touching an
+                  # ordinary `_` key in unmarked target data.
+                  hasAspectMetadata = value ? __provider || value ? __contentValues || value ? __providesForwarded;
+                  cleaned = builtins.removeAttrs value (
+                    [
+                      "__contentValues"
+                      "__provider"
+                      "__providesForwarded"
+                    ]
+                    ++ lib.optional hasAspectMetadata "_"
+                  );
+                in
+                if value ? _type || lib.isDerivation value then
+                  cleaned
+                else
+                  lib.mapAttrs (_: stripAspectMetadata) cleaned
+              else
+                value;
+            stripRoutingMetadata = value: stripAspectMetadata (stripEvaluatorMetadata value);
             stripAtPath =
               path: value:
               if path == [ ] then
-                stripModuleMetadata value
+                stripRoutingMetadata value
               else if builtins.isAttrs value && value ? ${builtins.head path} then
                 value
                 // {
@@ -89,18 +100,15 @@ let
                 }
               else
                 value;
-            forwarded = stripAtPath (intoPathFn args) (stripModuleMetadata args.config.den.fwd.${adapterKey});
+            path = intoPathFn args;
+            evaluated = lib.evalModules {
+              specialArgs = sourceSpecialArgsFn args;
+              modules = adapterMods ++ [ sourceModule ];
+            };
+            forwarded = stripAtPath path (stripRoutingMetadata evaluated.config);
           in
           {
-            options.den.fwd.${adapterKey} = lib.mkOption {
-              defaultText = lib.literalExpression "{ }";
-              default = { };
-              type = lib.types.submoduleWith {
-                specialArgs = adaptArgsFn args;
-                modules = adapterMods;
-              };
-            };
-            config = guardFn args (lib.setAttrByPath (intoPathFn args) forwarded);
+            config = guardFn args (lib.setAttrByPath path forwarded);
           };
       };
     };
@@ -199,15 +207,13 @@ let
           mkAdapterAspect {
             inherit (spec)
               intoClass
-              adapterKey
               guardFn
               guardArgs
               intoPathArgs
               intoPathFn
-              adaptArgsFn
+              sourceSpecialArgsFn
               adaptArgv
               adapterMods
-              freeformMod
               ;
           } sourceModule
         else

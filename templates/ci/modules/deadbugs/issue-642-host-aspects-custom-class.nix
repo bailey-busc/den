@@ -1,12 +1,14 @@
-# Discussion #642: a custom class defined via `_.forward` double-emits its
-# forwarded content when the `host-aspects` battery is also included, producing
-# an "already declared" option conflict on `den.fwd."<aspect>/<class>/<path>"`.
+# Discussion #642: a custom class defined via `_.forward` originally
+# double-emitted its content with the `host-aspects` battery and produced an
+# "already declared" conflict on `den.fwd."<aspect>/<class>/<path>"`.
 #
-# The battery's spawn re-applied the parent pipeline's own forward route, so the
-# adapter's `options.den.fwd.<key>` declaration was materialized by two folds
-# that both land in the user's home-manager evaluation.
+# Nested adapters no longer declare that option, but the route still needs one
+# owner. The list assertions detect silent double materialization.
 { denTest, ... }:
 let
+  countAudioRecorder =
+    plugins: builtins.length (builtins.filter (plugin: plugin.name == "audio-recorder") plugins);
+
   # One definition, threaded per test — each `denTest` gets its own `den`/`lib`.
   obsidianClass =
     den: lib:
@@ -42,15 +44,24 @@ in
         ];
 
         den.aspects.obsidian = {
-          obsidian.enable = true;
+          obsidian = {
+            enable = true;
+            defaultSettings.corePlugins = [ "audio-recorder" ];
+          };
         };
 
         den.hosts.x86_64-linux.igloo.users.tux = { };
 
         den.aspects.tux.includes = [ den.aspects.obsidian ];
 
-        expr = tuxHm.programs.obsidian.enable;
-        expected = true;
+        expr = {
+          enable = tuxHm.programs.obsidian.enable;
+          audioRecorderCount = countAudioRecorder tuxHm.programs.obsidian.defaultSettings.corePlugins;
+        };
+        expected = {
+          enable = true;
+          audioRecorderCount = 1;
+        };
       }
     );
 
@@ -71,20 +82,29 @@ in
         ];
 
         den.aspects.obsidian = {
-          obsidian.enable = true;
+          obsidian = {
+            enable = true;
+            defaultSettings.corePlugins = [ "audio-recorder" ];
+          };
         };
 
         den.hosts.x86_64-linux.igloo.users.tux = { };
 
         den.aspects.igloo.includes = [ den.aspects.obsidian ];
 
-        expr = tuxHm.programs.obsidian.enable;
-        expected = true;
+        expr = {
+          enable = tuxHm.programs.obsidian.enable;
+          audioRecorderCount = countAudioRecorder tuxHm.programs.obsidian.defaultSettings.corePlugins;
+        };
+        expected = {
+          enable = true;
+          audioRecorderCount = 1;
+        };
       }
     );
 
-    # Suppressing the spawn's copy leaves ONE owner for the declaration, so that
-    # owner must still reach every user on the host — not just the first.
+    # Suppressing the spawn's copy leaves one owner for the adapter route. That
+    # owner must still reach every user on the host, not only the first.
     test-host-defined-custom-class-reaches-every-user = denTest (
       {
         den,

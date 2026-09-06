@@ -106,11 +106,25 @@
 
         den.aspects.tux = {
           includes = [ forwarded ];
-          git.userEmail = "root@linux.com";
+          git =
+            { config, osConfig, ... }:
+            {
+              aliases.source-email = config.userEmail;
+              userEmail = "root@linux.com";
+              userName = osConfig.home.username;
+            };
         };
 
-        expr = igloo.home-manager.users.tux.programs.git.userEmail;
-        expected = "root@linux.com";
+        expr = {
+          email = igloo.home-manager.users.tux.programs.git.userEmail;
+          name = igloo.home-manager.users.tux.programs.git.userName;
+          sourceEmail = igloo.home-manager.users.tux.programs.git.aliases.source-email;
+        };
+        expected = {
+          email = "root@linux.com";
+          name = "tux";
+          sourceEmail = "root@linux.com";
+        };
       }
     );
 
