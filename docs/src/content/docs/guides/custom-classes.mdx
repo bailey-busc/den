@@ -194,7 +194,7 @@ den.batteries.forward {
 | Parameter | Description |
 |---|---|
 | `guard = args: bool or item: mkIf` | Only forward when this predicate returns true |
-| `adaptArgs = args: attrs` | Transform module arguments before forwarding |
+| `adaptArgs = args: attrs` | Set module arguments for the forwarded source |
 | `adapterModule = deferredModule` | Custom module for the forwarded submodule type |
 
 <Aside title="Guards reading config values">
@@ -219,7 +219,26 @@ guard = { config, ... }: _item: lib.mkIf (config.programs.vim.enable);
 - Use `lib.optionalAttrs` when testing if an **option is defined**.
 - Use `lib.mkIf` when testing for a **config value**.
 
+Config guards read the final target config. The value must have a definition
+that does not depend on the same guarded forward. A self-dependent guard has
+normal Nix module recursion semantics.
+
 </Aside>
+
+For a nested forward, Den gives the source evaluator its own `config`,
+`options`, and `lib` arguments when `adaptArgs` is absent. Other module
+arguments, such as `pkgs`, remain available.
+
+Den uses an explicit `adaptArgs` result as `specialArgs`. Reserved names in the
+result override the source arguments. Use a named argument when the source needs
+the target config:
+
+```nix
+adaptArgs = { config, ... }: { osConfig = config; };
+```
+
+The source can then request `config` for its local configuration and
+`osConfig` for the target configuration.
 
 ## User contributed examples
 

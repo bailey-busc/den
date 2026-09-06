@@ -56,5 +56,54 @@
       }
     );
 
+    test-explicit-identity-adapter-preserves-target-config = denTest (
+      {
+        den,
+        lib,
+        igloo,
+        ...
+      }:
+      let
+        probeModule = {
+          options.forward-probe = {
+            target = lib.mkOption { type = lib.types.str; };
+            copied = lib.mkOption { type = lib.types.str; };
+          };
+        };
+
+        forwarded =
+          { class, aspect-chain }:
+          den._.forward {
+            each = lib.singleton class;
+            fromClass = _: "probe";
+            intoClass = _: "nixos";
+            intoPath = _: [ "forward-probe" ];
+            fromAspect = _: lib.head aspect-chain;
+            adaptArgs = lib.id;
+          };
+      in
+      {
+        den.hosts.x86_64-linux.igloo.users.tux = { };
+        den.aspects.igloo = {
+          includes = [ forwarded ];
+          nixos = {
+            imports = [ probeModule ];
+            forward-probe.target = "outer";
+          };
+          probe =
+            { config, ... }:
+            {
+              copied = config.forward-probe.target;
+            };
+        };
+
+        expr = igloo.forward-probe;
+        expected = {
+          target = "outer";
+          copied = "outer";
+        };
+      }
+    );
+
   };
 }

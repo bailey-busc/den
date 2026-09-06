@@ -94,6 +94,18 @@ let
             res = adaptArgs args;
           in
           if lib.isFunction res then res item else res;
+      # Implicit adaptation keeps source module arguments while reserving the
+      # module system's config/options/lib for the source evaluator itself.
+      sourceSpecialArgsFn =
+        if adaptArgs == null then
+          args:
+          builtins.removeAttrs (args // (args.config._module.args or { })) [
+            "config"
+            "options"
+            "lib"
+          ]
+        else
+          adaptArgsFn;
       adaptArgv = if adaptArgs == null then { } else lib.functionArgs adaptArgs;
 
       extraArgsFor = args: builtins.removeAttrs (adaptArgsFn args) (builtins.attrNames args);
@@ -122,6 +134,7 @@ let
           intoPathArgs
           intoPathFn
           adaptArgsFn
+          sourceSpecialArgsFn
           adaptArgv
           adapterMods
           extraArgsFor
